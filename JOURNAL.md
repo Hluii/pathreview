@@ -72,12 +72,12 @@ Are there any blockers or dependencies?
 
 ## Week 8 — Reproduction & solution planning
 
-**Reproduction commit link:** [TODO: fill in after pushing — link to the commit adding tests/unit/test_orchestrator_session.py]
+**Reproduction commit link:** https://github.com/Hluii/pathreview/commit/111413b
 
 **Reproduction summary:**
 Wrote a unit test (`tests/unit/test_orchestrator_session.py`) that drives `Orchestrator.run()` directly with a mocked Redis client: first review includes a resume (`skill_extractor` runs), second review removes the resume. `test_removed_tool_output_does_not_linger_in_session` fails, showing `skill_extractor`'s stale output from the first run is still present in the persisted session state after the resume was removed — confirming `session_state.update(results)` in `agent/orchestrator.py:66` merges but never prunes stale keys, and nothing in the codebase ever calls `session_store.delete()`.
 
-**PLAN.md link:** [TODO: fill in after pushing — link to PLAN.md on this branch]
+**PLAN.md link:** https://github.com/Hluii/pathreview/blob/fix/43-agent-tools-session-clearing/PLAN.md
 
 **Walkthrough video (recommended):** 
 
