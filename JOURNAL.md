@@ -69,3 +69,17 @@ Is the scope realistic for Weeks 8–9?
 Are there any blockers or dependencies?
 
 [x] This issue has no open blockers or dependencies on other unresolved issues.
+
+## Week 8 — Reproduction & solution planning
+
+**Reproduction commit link:** [TODO: fill in after pushing — link to the commit adding tests/unit/test_orchestrator_session.py]
+
+**Reproduction summary:**
+Wrote a unit test (`tests/unit/test_orchestrator_session.py`) that drives `Orchestrator.run()` directly with a mocked Redis client: first review includes a resume (`skill_extractor` runs), second review removes the resume. `test_removed_tool_output_does_not_linger_in_session` fails, showing `skill_extractor`'s stale output from the first run is still present in the persisted session state after the resume was removed — confirming `session_state.update(results)` in `agent/orchestrator.py:66` merges but never prunes stale keys, and nothing in the codebase ever calls `session_store.delete()`.
+
+**PLAN.md link:** [TODO: fill in after pushing — link to PLAN.md on this branch]
+
+**Walkthrough video (recommended):** 
+
+**Blockers or open questions:**
+Unclear whether the original design intended `session_state` to accumulate across runs for some other purpose (e.g. partial/incremental reviews) — need to confirm a full-replace fix doesn't regress an intentional caching behavior before implementing in Week 9. Also, `Orchestrator`/`SessionStore` aren't wired into the live API yet (`core/services/review_service.py:282` is a stub), so there's no integration test to validate against once connected.
