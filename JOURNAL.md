@@ -83,3 +83,34 @@ Wrote a unit test (`tests/unit/test_orchestrator_session.py`) that drives `Orche
 
 **Blockers or open questions:**
 Unclear whether the original design intended `session_state` to accumulate across runs for some other purpose (e.g. partial/incremental reviews) — need to confirm a full-replace fix doesn't regress an intentional caching behavior before implementing in Week 9. Also, `Orchestrator`/`SessionStore` aren't wired into the live API yet (`core/services/review_service.py:282` is a stub), so there's no integration test to validate against once connected.
+
+## Week 9 — Solution building & PR submission
+
+### Check-in 1 (mid-week)
+
+**Current progress:**
+PLAN.md steps 1–4 are done. I resolved the Week 8 open question first (step 3): the session state loaded from Redis in `Orchestrator.run()` was never read for anything except the `update()`-then-`set()`, and no caller anywhere depends on results accumulating across runs, so the accumulation was incidental, not an intentional cache, and a full replace is safe. Implemented the fix in `agent/orchestrator.py`: `run()` no longer loads the previous session at all, and persists the current run's `results` directly (steps 1–2). Added one case the plan's edge-case list called for but the merge-vs-replace fix didn't cover on its own: when a profile has no tool-triggering data left, the plan is empty, and storing `{}` would leave a TTL-refreshing placeholder key in Redis, so `run()` calls `session_store.delete(profile_id)` instead. That makes the previously-unused `SessionStore.delete()` load-bearing. Test work (step 4): the Week 8 reproduction test `test_removed_tool_output_does_not_linger_in_session` now passes, `tests/unit/test_orchestrator_session.py` is extended with regression cases for the empty-profile and unchanged-data paths, and I added `tests/unit/test_session_store.py` (new) to cover the store's get/set/delete contract directly, including corrupt-JSON and Redis-outage degradation and the empty-vs-missing session distinction, which the plan flagged as an untested area. 19 tests pass across the two files.
+
+**Next steps:**
+Finish PLAN.md step 5: `make lint` and `make typecheck`, and a full `make test-unit` diff against `tests/baseline-failures.txt`. First pass shows no new failures beyond the 53 pre-existing baseline ones, but I want to confirm that with a clean run before opening the PR. Then write the PR description referencing #43, and drop the unrelated `core/config.py` Postgres port change (5432 → 5433) out of this branch. That's a local docker-compose workaround, not part of the fix.
+
+**Blockers:**
+None. Still no integration coverage for this path since `Orchestrator`/`SessionStore` aren't wired into the live API yet (`core/services/review_service.py:282` is a stub), so the fix is validated at the unit level only. Worth calling out in the PR, but it isn't blocking.
+
+---
+
+### Check-in 2 (end of week)
+
+**PR link:** [link to your submitted pull request]
+
+**Branch:** [the branch name you worked on, e.g. `fix/123-short-description`]
+
+**What you built:**
+[1–3 sentences summarizing what your fix does and how it works]
+
+**Tests added or updated:**
+[Which test files did you touch? What do they cover?]
+
+**Self-review confirmation:** [ ] make check passes  [ ] make test-unit passes
+
+**Draft PR feedback received from:** [name or Slack handle, or "none"]
