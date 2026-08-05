@@ -110,7 +110,84 @@ class TestOrchestratorSessionClearing:
         session_state = session_store.get(profile_id)
 
         assert session_state is not None
-        # This is expected to currently FAIL: skill_extractor's stale
-        # output from the first run is still present even though the
+        # skill_extractor's output from the first run must not survive: the
         # resume that produced it no longer exists.
         assert "skill_extractor" not in session_state
+        # ...while the tool that did run is present, with current data.
+        assert session_state["readme_scorer"]["readme_content"] == "v2 readme"
+
+    def test_session_reflects_only_current_run_results(
+        self, orchestrator: Orchestrator, session_store: SessionStore
+    ) -> None:
+        """The persisted session is a replacement, not an accumulation."""
+        profile_id = "profile-789"
+
+        orchestrator.run(profile_id, {"resume_text": "only a resume"})
+        assert set(session_store.get(profile_id) or {}) == {"skill_extractor", "market_analyzer"}
+
+        orchestrator.run(profile_id, {"readme_content": "only a readme"})
+        assert set(session_store.get(profile_id) or {}) == {"readme_scorer", "market_analyzer"}
+
+    def test_profile_with_no_tool_triggering_data_clears_session(
+        self, orchestrator: Orchestrator, session_store: SessionStore
+    ) -> None:
+        """Removing all reviewable content leaves no stale session behind."""
+        profile_id = "profile-empty"
+
+        orchestrator.run(profile_id, {"readme_content": "v1 readme"})
+        assert session_store.get(profile_id) is not None
+
+        # Every tool-triggering field is now gone, so the plan is empty.
+        orchestrator.run(profile_id, {})
+
+        assert session_store.get(profile_id) is None
+
+    def test_first_review_with_no_prior_session_succeeds(
+        self, orchestrator: Orchestrator, session_store: SessionStore
+    ) -> None:
+        """A profile Redis has never seen (or whose TTL expired) is not an error."""
+        profile_id = "profile-brand-new"
+
+        result = orchestrator.run(profile_id, {"readme_content": "first ever readme"})
+
+        assert result["tool_results"]["readme_scorer"]["readme_content"] == "first ever readme"
+        assert (session_store.get(profile_id) or {})["readme_scorer"][
+            "readme_content"
+        ] == "first ever readme"
+
+    def test_failed_tool_result_replaces_previous_success(
+        self, session_store: SessionStore
+    ) -> None:
+        """An erroring tool must not leave the prior run's success in the session.
+
+        Otherwise a later review would appear to have working data for a
+        tool that in fact failed.
+        """
+        profile_id = "profile-failing"
+
+        class ExplodingReadmeScorer(BaseTool):
+            name = "readme_scorer"
+            description = "Readme scorer that fails on demand"
+
+            def __init__(self) -> None:
+                self.should_fail = False
+
+            def execute(self, input_data: dict) -> ToolResult:
+                if self.should_fail:
+                    raise RuntimeError("scoring backend unavailable")
+                return ToolResult(success=True, data={"score": 90})
+
+        scorer = ExplodingReadmeScorer()
+        orchestrator = Orchestrator(tools={"readme_scorer": scorer}, session_store=session_store)
+
+        orchestrator.run(profile_id, {"readme_content": "good readme"})
+        assert (session_store.get(profile_id) or {})["readme_scorer"] == {"score": 90}
+
+        # Same profile re-reviewed, but the tool now fails. Note the readme
+        # text differs so the in-run memoization cache does not mask this.
+        scorer.should_fail = True
+        orchestrator.run(profile_id, {"readme_content": "different readme"})
+
+        persisted = (session_store.get(profile_id) or {})["readme_scorer"]
+        assert persisted["success"] is False
+        assert "score" not in persisted

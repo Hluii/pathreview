@@ -45,11 +45,6 @@ class Orchestrator:
         # Build execution plan
         plan = self._build_plan(profile_data)
 
-        # Load previous session state if available
-        session_state = {}
-        if self.session_store:
-            session_state = self.session_store.get(profile_id) or {}
-
         # Execute plan
         results = {}
         for tool_name, tool_input in plan:
@@ -63,10 +58,18 @@ class Orchestrator:
                 logger.error("tool_execution_failed", tool=tool_name, error=str(e))
                 results[tool_name] = {"error": str(e), "success": False}
 
-        # Persist state
+        # Persist state — replace rather than merge (issue #43).
+        # Merging would strand results from tools that ran in a previous
+        # review but are absent from the current plan (e.g. skill_extractor
+        # after the user deletes their resume). The session describes the
+        # portfolio's current state, so this run's results are authoritative.
         if self.session_store:
-            session_state.update(results)
-            self.session_store.set(profile_id, session_state)
+            if results:
+                self.session_store.set(profile_id, results)
+            else:
+                # No tool-triggering data left in the profile; drop the
+                # session instead of storing an empty dict.
+                self.session_store.delete(profile_id)
 
         logger.info("orchestrator_complete", profile_id=profile_id, tools_executed=len(results))
 
