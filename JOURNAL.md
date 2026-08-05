@@ -101,16 +101,17 @@ None. Still no integration coverage for this path since `Orchestrator`/`SessionS
 
 ### Check-in 2 (end of week)
 
-**PR link:** [link to your submitted pull request]
+**PR link:** https://github.com/ascherj/pathreview/pull/972
 
-**Branch:** [the branch name you worked on, e.g. `fix/123-short-description`]
+**Branch:** fix/43-agent-tools-session-clearing
 
 **What you built:**
-[1–3 sentences summarizing what your fix does and how it works]
+`Orchestrator.run()` used to load the previous review's session state from Redis and merge the current run's tool results into it with `dict.update()`, which adds and overwrites keys but never removes them — so output from a tool that ran in an earlier review but isn't in the current execution plan stayed in the session indefinitely. The fix persists the current run's `results` directly instead of merging, since the session is meant to describe the portfolio's current state; the previous state is no longer read at all. When the plan comes back empty (a profile with no tool-triggering data left), `run()` calls the previously-unused `session_store.delete(profile_id)` rather than storing `{}`, which would leave a placeholder key in Redis whose 1-hour TTL is refreshed on every review.
 
 **Tests added or updated:**
-[Which test files did you touch? What do they cover?]
+`tests/unit/test_orchestrator_session.py` (updated) — the Week 8 reproduction test `test_removed_tool_output_does_not_linger_in_session` now passes, plus five more cases: second review reflects updated data, session holds only the current run's results, an empty profile clears the session, a first review with no prior session succeeds, and a failed tool result replaces a previous success. `tests/unit/test_session_store.py` (new) — direct coverage of the store's get/set/delete contract, which mattered because `delete()` had no callers anywhere in the repo before this change: key namespacing, default and custom TTL, corrupt-JSON and Redis-outage degradation, and the empty-vs-missing session distinction. 19 tests total across the two files, all passing.
 
-**Self-review confirmation:** [ ] make check passes  [ ] make test-unit passes
+**Self-review confirmation:** [x] make check passes  [x] make test-unit passes
+Both pass on every file this PR touches — `ruff` and `mypy` are clean on `agent/orchestrator.py` and the two test files. Neither comes back fully green repo-wide, but that's pre-existing and unrelated: `main` already has 53 failing unit tests, 175 ruff errors, and 5 mypy errors (missing third-party stubs, and unused locals in other test files). I diffed the failing-test list before and after my change against `tests/baseline-failures.txt` and it's identical, so the fix introduces no new failures. Called this out in the PR description so the reviewer isn't guessing why CI isn't green.
 
-**Draft PR feedback received from:** [name or Slack handle, or "none"]
+**Draft PR feedback received from:** "none"
