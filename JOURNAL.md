@@ -115,3 +115,87 @@ None. Still no integration coverage for this path since `Orchestrator`/`SessionS
 Both pass on every file this PR touches — `ruff` and `mypy` are clean on `agent/orchestrator.py` and the two test files. Neither comes back fully green repo-wide, but that's pre-existing and unrelated: `main` already has 53 failing unit tests, 175 ruff errors, and 5 mypy errors (missing third-party stubs, and unused locals in other test files). I diffed the failing-test list before and after my change against `tests/baseline-failures.txt` and it's identical, so the fix introduces no new failures. Called this out in the PR description so the reviewer isn't guessing why CI isn't green.
 
 **Draft PR feedback received from:** "none"
+
+
+## Week 10 — Iteration & reflection
+
+### Reviewer feedback
+
+**Feedback received:** [x] Yes  [x] No — still awaiting review
+
+**Summary of feedback:**
+ 
+GitHub Copilot's automated PR review left four comments:
+1. (High) `_build_plan()` in `orchestrator.py` unconditionally appends a `market_analyzer` step to the plan whenever other tools ran, even when `market_analyzer` isn't registered on the orchestrator — guaranteeing an "Unknown tool" error and persisting that error into the session.
+2. (High) `test_orchestrator_session.py` assertions on lines 125-129 expect `market_analyzer` in the persisted session, even though the test fixture doesn't register a `market_analyzer` tool — a downstream symptom of #1.
+3. (Medium) `SessionStore.get()` assumes `json.loads()` always returns a dict, but it can return other JSON types if the stored payload is malformed, which would violate the method's contract.
+4. (Low) A stale comment in `test_orchestrator_session.py` says an assertion is "expected to currently FAIL until issue #43 is fixed" — but the test now passes, making the comment misleading.
+
+**How you responded:**
+
+**1. Unconditional `market_analyzer` append (High):** Agreed this is a real bug.
+One correction to Copilot's premise: the orchestrator does not currently guard
+against unknown tools — `run()` catches the `ValueError: Unknown tool` and
+records it as a failed result (`orchestrator.py:57-59`), which is why the key
+shows up in the persisted session at all. Copilot's comment describes what the
+code should do, not what it currently does. The proposed fix is to guard the
+append: `if plan and "market_analyzer" in self.tools:` before appending the
+market_analyzer step, so it's only planned when actually registered. Treating
+this as a follow-up rather than fixing in this PR, since it's adjacent to but
+not required by issue #43.
+
+**2. Test assertions expecting market_analyzer (High):** [PENDING — pick one:
+drop from `==` comparison, or register a fake market_analyzer tool in the
+session-clearing test fixture]
+
+**3. SessionStore.get() type validation (Medium):** Agreed this is a legitimate
+defensive-coding gap, but out of scope for issue #43 — the fix addresses the
+merge-on-save bug, not general payload validation. Noting as a reasonable
+follow-up, not addressing here.
+
+**4. Stale "expected to FAIL" comment (Low):** Agreed, the comment is
+outdated now that the fix makes the assertion pass. Will update to reflect
+that it's a regression test for issue #43.
+
+---
+
+### Reflection
+
+**What was harder than you expected?**
+Having to create a make target to compare baseline test outputs, because the
+existing failures were so noisy. There was no way to see the bug in the
+running app: core/services/review_service.py:282 is a stub, so the
+orchestrator isn't reachable from the API. Everything had to be validated
+through unit tests against a mocked Redis.
+
+**What did you learn about working in a large codebase?**
+The issue description and the files it pointed to weren't actually where the
+bug lived. I also had to practice proper commit conventions, like separating
+commits by bug fixes, docs, and chores, instead of bundling everything
+together.
+
+**How did AI tools help, and where did they fall short?**
+Most helpful for quickly scanning and understanding code so I could ask
+targeted questions about it. But I needed to step in, review, and question
+each decision to make sure it aligned with the spec, and to catch things
+like undeleted comments that didn't flag errors in testing.
+
+**What would you do differently if you started over?**
+Branch hygiene. The fix, the reproduction, the JOURNAL entries, PLAN.md, and
+the Makefile targets all landed on one branch, so the PR carries coursework
+the maintainer didn't ask for. Next time: coursework on one branch, a clean
+fix branch off upstream/main with just the reproduction and the fix.
+Record the baseline on main before touching anything, rather than partway
+through. Resolve the "is this intentional?" question in Week 8 instead of
+carrying it into Week 9 as a blocker on implementation. Check git status
+before each commit; twice this week unrelated files were sitting in the
+tree.
+
+**What are you most proud of from this module?**
+Not just fixing the reported symptom. The issue named session_store.py, but
+the actual defect was session_state.update(results) in the orchestrator, and
+the store was fine. Fixing that surfaced a second bug nobody had reported:
+the empty-plan case was deleting the session instead of storing {}, which is
+also why SessionStore.delete() went from dead code to load-bearing. Close
+second: building test-baseline/test-diff tooling the repo didn't already
+have, which is useful beyond this one issue.
